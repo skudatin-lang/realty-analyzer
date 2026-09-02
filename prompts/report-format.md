@@ -1,0 +1,1 @@
+Ответ — компактный структурированный JSON по переданной схеме. sections использует ключи strengths, risks, price_defense, price_gaps, hidden_value, audience, packaging, lower_competitor, upper_competitor, contradictions, verify. choice.target обязателен; lower/upper могут быть null. Не добавляй поля вне схемы.

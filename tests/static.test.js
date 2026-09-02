@@ -1,0 +1,2 @@
+import test from "node:test";import assert from "node:assert/strict";import {readFile} from "node:fs/promises";
+test("service worker never caches API or POST",async()=>{const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");assert.match(sw,/method!==["']GET["']/);assert.match(sw,/\/api\//)});test("frontend has no persistent database APIs",async()=>{const app=await readFile(new URL("../assets/js/app.js",import.meta.url),"utf8");assert.doesNotMatch(app,/localStorage|indexedDB/);assert.match(app,/URL\.revokeObjectURL/)});
