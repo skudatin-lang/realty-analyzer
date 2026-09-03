@@ -1,4 +1,4 @@
-const CACHE="realty-shell-v2";
+const CACHE="realty-shell-v3";
 const SHELL=["./","./index.html","./report.html","./assets/css/app.css","./assets/js/config.js","./assets/js/app.js","./assets/js/report.js","./assets/icons/icon.svg","./assets/icons/icon-192.png","./assets/icons/icon-512.png","./manifest.webmanifest"];
 self.addEventListener("install",event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener("activate",event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
