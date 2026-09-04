@@ -14,9 +14,11 @@ async function projectFile(folder, name) {
 
 const extractionSchema = JSON.parse(await projectFile("schemas", "extraction.schema.json"));
 const analysisSchema = JSON.parse(await projectFile("schemas", "analysis.schema.json"));
+const initialAnalysisSchema = JSON.parse(await projectFile("schemas", "initial-analysis.schema.json"));
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 const validateExtraction = ajv.compile(extractionSchema);
 const validateAnalysis = ajv.compile(analysisSchema);
+const validateInitialAnalysis = ajv.compile(initialAnalysisSchema);
 const limits = new Map();
 
 const headers = origin => ({
@@ -95,17 +97,49 @@ async function validAi(messages, model, validate) {
   }
 }
 
+function normalizeExtraction(data) {
+  const legalDate = /(дкп|приватизац|наслед|дарени|регистрац|переход.*прав|ипотек)/i;
+  const directHouseYear = /(год.*(построй|строительств)|дом.*(постро|сдан)|построен.*дом)/i;
+  const rejected = [];
+  data.building = (data.building || []).filter(item => {
+    const isYear = /(year_built|год.*(дом|построй)|год постройки)/i.test(item.field || "");
+    const evidence = `${item.source_text || ""} ${item.note || ""}`;
+    if (isYear && legalDate.test(evidence) && !directHouseYear.test(evidence)) { rejected.push(item); return false; }
+    return true;
+  });
+  if (rejected.length) {
+    data.missing_important_fields = [...new Set([...(data.missing_important_fields || []), "год постройки"] )];
+    data.needs_verification = [...(data.needs_verification || []), { field: "Год постройки", value: null, source: "ТЕКСТ", note: "Юридическая дата не подтверждает год дома", status: "НУЖНО ПРОВЕРИТЬ", source_text: rejected.map(x => x.source_text).filter(Boolean).join("; ") }];
+  }
+  return data;
+}
+
 async function extract(e) {
   const { fields, images } = await parseMultipart(e);
   if (!["target", "competitor"].includes(fields.role)) throw Object.assign(new Error("Некорректная роль"), { code: "BAD_ROLE", status: 400 });
   const content = [{ type: "text", text: `id=${fields.id || crypto.randomUUID()}; role=${fields.role}; универсальный текст пользователя=${fields.comment?.trim() || "ОТСУТСТВУЕТ"}\nНаличие источников: изображений=${images.length}, текста=${Boolean(fields.comment?.trim())}.\nJSON Schema: ${JSON.stringify(extractionSchema)}` }];
   images.forEach(image => content.push({ type: "image_url", image_url: image }));
-  return validAi([{ role: "system", content: await projectFile("prompts", "extract-object.md") }, { role: "user", content }], process.env.VISION_MODEL, validateExtraction);
+  return normalizeExtraction(await validAi([{ role: "system", content: await projectFile("prompts", "extract-object.md") }, { role: "user", content }], process.env.VISION_MODEL, validateExtraction));
+}
+async function analyzeInitial(e) {
+  const body = Buffer.from(e.body || "", e.isBase64Encoded ? "base64" : "utf8");
+  if (body.length > 1024 * 1024) throw Object.assign(new Error("JSON больше 1 МБ"), { code: "TOO_LARGE", status: 413 });
+  let data; try { data = JSON.parse(body.toString("utf8")); } catch { throw Object.assign(new Error("Некорректный JSON"), { code: "BAD_JSON", status: 400 }); }
+  if (!data.target) throw Object.assign(new Error("Нужен один целевой объект"), { code: "BAD_INPUT", status: 400 });
+  const names = ["initial-analysis.md", "photo-audit.md", "call-preparation.md"];
+  const modules = await Promise.all(names.map(name => projectFile("prompts", name)));
+  return validAi([{ role: "system", content: `${modules.join("\n\n---\n\n")}\n\nСхема ответа: ${JSON.stringify(initialAnalysisSchema)}` }, { role: "user", content: JSON.stringify({ target: data.target, deterministic: data.calculations || {} }) }], process.env.ANALYSIS_MODEL, validateInitialAnalysis);
 }
 async function analyze(e) {
   const body = Buffer.from(e.body || "", e.isBase64Encoded ? "base64" : "utf8");
   if (body.length > 1024 * 1024) throw Object.assign(new Error("JSON больше 1 МБ"), { code: "TOO_LARGE", status: 413 });
   let data; try { data = JSON.parse(body.toString("utf8")); } catch { throw Object.assign(new Error("Некорректный JSON"), { code: "BAD_JSON", status: 400 }); }
+  if (data.mode === "initial") {
+    if (!data.target) throw Object.assign(new Error("Нужен один целевой объект"), { code: "BAD_INPUT", status: 400 });
+    const names = ["initial-analysis.md", "photo-audit.md", "call-preparation.md"];
+    const modules = await Promise.all(names.map(name => projectFile("prompts", name)));
+    return validAi([{ role: "system", content: `${modules.join("\n\n---\n\n")}\n\nСхема ответа: ${JSON.stringify(initialAnalysisSchema)}` }, { role: "user", content: JSON.stringify({ target: data.target, deterministic: data.calculations || {} }) }], process.env.ANALYSIS_MODEL, validateInitialAnalysis);
+  }
   if (!data.target || !Array.isArray(data.competitors) || !data.competitors.length) throw Object.assign(new Error("Нужны цель и конкурент"), { code: "BAD_INPUT", status: 400 });
   const names = ["analysis-methodology.md", "buyer-value.md", "seller-questions.md", "inspection.md", "storytelling.md", "report-format.md"];
   const modules = await Promise.all(names.map(name => projectFile("prompts", name)));
@@ -119,8 +153,9 @@ export async function handler(event) {
     if (!allowed(origin)) throw Object.assign(new Error("Origin не разрешён"), { code: "CORS", status: 403 });
     if (method === "OPTIONS") return { statusCode: 204, headers: headers(origin), body: "" };
     if (!rate(event.requestContext?.identity?.sourceIp || event.requestContext?.http?.sourceIp)) throw Object.assign(new Error("Слишком много запросов"), { code: "RATE_LIMIT", status: 429 });
-    if (route.endsWith("/api/health") && method === "GET") return response(200, { ok: true, providerConfigured: Boolean(process.env.PROXYAPI_KEY && process.env.VISION_MODEL && process.env.ANALYSIS_MODEL), analyticsVersion: 2 }, origin);
+    if (route.endsWith("/api/health") && method === "GET") return response(200, { ok: true, providerConfigured: Boolean(process.env.PROXYAPI_KEY && process.env.VISION_MODEL && process.env.ANALYSIS_MODEL), analyticsVersion: 3 }, origin);
     if (route.endsWith("/api/extract-object") && method === "POST") return response(200, { ok: true, data: await extract(event) }, origin);
+    if (route.endsWith("/api/analyze-listing") && method === "POST") return response(200, { ok: true, data: await analyzeInitial(event) }, origin);
     if (route.endsWith("/api/analyze") && method === "POST") return response(200, { ok: true, data: await analyze(event) }, origin);
     status = 404; return response(404, { ok: false, error: { code: "NOT_FOUND", message: "Маршрут не найден" } }, origin);
   } catch (error) {

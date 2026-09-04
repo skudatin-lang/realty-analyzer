@@ -1,5 +1,5 @@
-const CACHE="realty-shell-v6";
-const SHELL=["./","./index.html","./report.html","./assets/css/app.css?v=6","./assets/js/config.js?v=6","./assets/js/app.js?v=6","./assets/js/report.js?v=6","./assets/icons/icon.svg","./assets/icons/icon-192.png","./assets/icons/icon-512.png","./manifest.webmanifest"];
+const CACHE="realty-shell-v7";
+const SHELL=["./","./index.html","./report.html","./assets/css/app.css?v=7","./assets/js/config.js?v=7","./assets/js/app.js?v=7","./assets/js/report.js?v=7","./assets/icons/icon.svg","./assets/icons/icon-192.png","./assets/icons/icon-512.png","./manifest.webmanifest"];
 self.addEventListener("install",event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener("activate",event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener("fetch",event=>{const url=new URL(event.request.url);if(event.request.method!=="GET"||url.pathname.includes("/api/"))return;event.respondWith(caches.match(event.request).then(hit=>hit||fetch(event.request).then(response=>{if(response.ok&&response.type==="basic"){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy))}return response}))) });
