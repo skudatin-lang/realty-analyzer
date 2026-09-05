@@ -220,7 +220,7 @@ export async function handler(event) {
     if (!allowed(origin)) throw Object.assign(new Error("Origin не разрешён"), { code: "CORS", status: 403 });
     if (method === "OPTIONS") return { statusCode: 204, headers: headers(origin), body: "" };
     if (!rate(event.requestContext?.identity?.sourceIp || event.requestContext?.http?.sourceIp)) throw Object.assign(new Error("Слишком много запросов"), { code: "RATE_LIMIT", status: 429 });
-    if (route.endsWith("/api/health") && method === "GET") return response(200, { ok: true, providerConfigured: Boolean(process.env.PROXYAPI_KEY && process.env.VISION_MODEL && process.env.ANALYSIS_MODEL), analyticsVersion: 3 }, origin);
+    if (route.endsWith("/api/health") && method === "GET") return response(200, { ok: true, providerConfigured: Boolean(process.env.PROXYAPI_KEY && process.env.VISION_MODEL && process.env.ANALYSIS_MODEL), analyticsVersion: 4, step1PromptVersion: 3 }, origin);
     if (route.endsWith("/api/extract-object") && method === "POST") return response(200, { ok: true, data: await extract(event) }, origin);
     if (route.endsWith("/api/analyze-listing") && method === "POST") return response(200, { ok: true, data: await analyzeInitial(event) }, origin);
     if (route.endsWith("/api/analyze") && method === "POST") return response(200, { ok: true, data: await analyze(event) }, origin);
